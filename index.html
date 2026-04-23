@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Greta: El Efecto Dominó | Pitch Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --neon: #39FF14; --bg: #050505; --text: #fff; --glass: rgba(255, 255, 255, 0.1); }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; overflow: hidden; }
+        
+        #video-container { position: absolute; inset: 0; background: #000; overflow: hidden; }
+        #video-container::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle, transparent 30%, rgba(0,0,0,0.8) 100%); pointer-events: none; z-index: 2; }
+        
+        video { width: 100%; height: 100%; object-fit: cover; transition: filter 0.8s ease; cursor: pointer; }
+        .blur { filter: blur(20px) brightness(0.3); }
+
+        /* HUD Superior */
+        .hud-top { position: absolute; top: 0; width: 100%; display: flex; justify-content: space-between; padding: 30px 50px; z-index: 100; pointer-events: none; background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent); transition: opacity 1s; }
+        .lvl-tag { font-weight: 900; letter-spacing: 2px; font-size: 0.7rem; pointer-events: auto; text-transform: uppercase; }
+        .impact-meter { width: 250px; text-align: right; }
+        .impact-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.1); margin-top: 8px; border-radius: 2px; position: relative; }
+        #impact-fill { height: 100%; width: 10%; background: var(--neon); transition: width 1s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 0 15px var(--neon); }
+
+        #info-trigger { position: absolute; bottom: 100px; right: 50px; width: 45px; height: 45px; border: 1px solid var(--neon); border-radius: 50%; color: var(--neon); display: none; align-items: center; justify-content: center; font-size: 1.2rem; cursor: pointer; transition: 0.3s; z-index: 150; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); }
+
+        /* Modales */
+        #overlay { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: 0.5s; z-index: 200; backdrop-filter: blur(8px); }
+        #overlay.active { opacity: 1; pointer-events: auto; }
+        .modal-content { background: var(--glass); border: 1px solid rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; text-align: center; max-width: 500px; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }
+        
+        .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 30px; }
+        .btn-choice { border: 1px solid var(--neon); color: var(--neon); padding: 15px; background: transparent; cursor: pointer; font-weight: bold; text-transform: uppercase; transition: 0.3s; font-size: 0.7rem; letter-spacing: 1px; }
+        .btn-choice:hover { background: var(--neon); color: #000; box-shadow: 0 0 20px var(--neon); }
+
+        /* Timeline INTERACTIVA */
+        .timeline { 
+            position: absolute; bottom: 0; width: 100%; height: 10px; 
+            background: rgba(255,255,255,0.05); z-index: 150; 
+            cursor: pointer; transition: height 0.3s;
+        }
+        .timeline:hover { height: 15px; background: rgba(255,255,255,0.1); }
+        #progress-line { position: absolute; height: 100%; width: 0%; background: var(--neon); box-shadow: 0 0 10px var(--neon); pointer-events: none; }
+
+        .pulsing { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(57, 255, 20, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(57, 255, 20, 0); } 100% { box-shadow: 0 0 0 0 rgba(57, 255, 20, 0); } }
+    </style>
+</head>
+<body>
+
+    <audio id="bg-music" loop><source src="audio/ariath_math.mp3" type="audio/mpeg"></audio>
+
+    <div id="hud" class="hud-top">
+        <div class="lvl-tag">SISTEMA // <span id="lvl-name" style="color:var(--neon)">CONECTANDO</span></div>
+        <div class="impact-meter">
+            <div style="font-size: 9px; letter-spacing: 2px; opacity: 0.6;">MEDIDOR DE IMPACTO GLOBAL</div>
+            <div class="impact-bar"><div id="impact-fill"></div></div>
+        </div>
+    </div>
+
+    <div id="video-container">
+        <video id="main-video" playsinline onclick="togglePlay()">
+            <source src="videos/intro.mp4" type="video/mp4">
+        </video>
+        <div id="info-trigger" class="pulsing" onclick="openInfo()">i</div>
+    </div>
+
+    <div id="overlay">
+        <div class="modal-content" id="modal-body"></div>
+    </div>
+
+    <div class="timeline" id="timeline-control" onclick="seekVideo(event)">
+        <div id="progress-line"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('main-video');
+        const music = document.getElementById('bg-music');
+        const overlay = document.getElementById('overlay');
+        const impactFill = document.getElementById('impact-fill');
+        const infoTrigger = document.getElementById('info-trigger');
+        const progressLine = document.getElementById('progress-line');
+        const timelineControl = document.getElementById('timeline-control');
+        const hud = document.getElementById('hud');
+
+        let impact = 10;
+        let currentKey = 'intro';
+
+        const gameData = {
+            'intro': {
+                name: 'NIVEL 1: EL ORIGEN',
+                video: 'videos/intro.mp4',
+                infoAt: 4, 
+                infoText: 'Greta Thunberg comenzó su huelga escolar sola en 2018. Su persistencia movilizó a millones.',
+                choices: [
+                    { text: 'Unirse a ella', next: 'nivel1_mirar', points: 15 },
+                    { text: 'Seguir de largo', next: 'nivel1_ignorar', points: -5 }
+                ]
+            },
+            'nivel1_mirar': {
+                name: 'NIVEL 2: LA CONCIENCIA',
+                video: 'videos/nivel1_mirar.mp4',
+                infoAt: 3,
+                infoText: 'El 71% de las emisiones industriales provienen de solo 100 empresas.',
+                choices: [
+                    { text: 'Escuchar Mensaje', next: 'nivel2_voz', points: 10 },
+                    { text: 'Ver Acción Masiva', next: 'nivel3_mov', points: 10 }
+                ]
+            },
+            'nivel1_ignorar': {
+                name: 'NIVEL 2: LA INDIFERENCIA',
+                video: 'videos/nivel1_ignorar.mp4',
+                infoAt: 3,
+                infoText: 'Ignorar el problema no lo detiene: el Ártico se calienta 4 veces más rápido.',
+                choices: [
+                    { text: 'Recapacitar ahora', next: 'nivel2_voz', points: 10 },
+                    { text: 'Pasar del tema', next: 'nivel4_reaccion', points: -10 }
+                ]
+            },
+            'nivel2_voz': {
+                name: 'NIVEL 3: EL DISCURSO',
+                video: 'videos/nivel2_voz.mp4',
+                infoAt: 5,
+                infoText: 'Su discurso en la ONU en 2019 se volvió un hito histórico de la comunicación ambiental.',
+                choices: [
+                    { text: 'Apoyar causa', next: 'nivel3_mov', points: 15 },
+                    { text: 'Ver la reacción', next: 'nivel4_reaccion', points: 5 }
+                ]
+            },
+            'nivel3_mov': {
+                name: 'NIVEL 4: EL MOVIMIENTO',
+                video: 'videos/nivel3_mov.mp4',
+                infoAt: 4,
+                infoText: 'Se estima que en 2019, 4 millones de personas participaron en la huelga climática.',
+                choices: [
+                    { text: 'Liderar acción', next: 'final_agente', points: 20 },
+                    { text: 'Dudar del cambio', next: 'final_espe', points: 0 }
+                ]
+            },
+            'nivel4_reaccion': {
+                name: 'NIVEL 4: LA POLÍTICA',
+                video: 'videos/nivel4_reaccion.mp4',
+                infoAt: 3,
+                infoText: 'Muchos políticos usaron ataques personales para no hablar de ciencia.',
+                choices: [
+                    { text: 'Defender ciencia', next: 'final_agente', points: 15 },
+                    { text: 'Rendirse', next: 'final_espectador', points: -10 }
+                ]
+            },
+            'final_agente': { name: 'ESTADO: AGENTE DE CAMBIO', video: 'videos/final_agente.mp4', isFinal: true },
+            'final_espectador': { name: 'ESTADO: ESPECTADOR', video: 'videos/final_espectador.mp4', isFinal: true },
+            'experiencia_final': { name: 'EL MUNDO ES MARAVILLOSO', video: 'videos/paisajes_4k.mp4', isCinematic: true }
+        };
+
+        // FUNCIÓN PARA ADELANTAR/RETROCEDER
+        function seekVideo(event) {
+            const timelineWidth = timelineControl.clientWidth;
+            const clickX = event.offsetX;
+            const duration = video.duration;
+            if (duration) {
+                video.currentTime = (clickX / timelineWidth) * duration;
+            }
+        }
+
+        function togglePlay() {
+            if (video.paused) { video.play(); music.play(); }
+            else { video.pause(); }
+        }
+
+        function loadNode(key) {
+            currentKey = key;
+            const data = gameData[key];
+            if (!data) return;
+            
+            if(data.isCinematic) {
+                hud.style.opacity = '0';
+                music.pause(); 
+            }
+
+            video.src = data.video;
+            video.load(); 
+            video.play().catch(e => console.log("Click para iniciar"));
+            
+            document.getElementById('lvl-name').innerText = data.name;
+            infoTrigger.style.display = 'none';
+            overlay.classList.remove('active');
+            video.classList.remove('blur');
+        }
+
+        video.ontimeupdate = () => {
+            if (isNaN(video.duration)) return;
+            let pc = (video.currentTime / video.duration) * 100;
+            progressLine.style.width = pc + '%';
+
+            const data = gameData[currentKey];
+            if(data && data.infoAt && Math.floor(video.currentTime) === data.infoAt) {
+                infoTrigger.style.display = 'flex';
+            } else if (data && data.infoAt && Math.floor(video.currentTime) > data.infoAt) {
+                infoTrigger.style.display = 'none';
+            }
+        };
+
+        video.onended = () => {
+            const data = gameData[currentKey];
+            if (data.choices && data.choices.length > 0) {
+                showChoices(data.choices);
+            } else if (data.isFinal) {
+                showFinal();
+            } else if (data.isCinematic) {
+                showRestartOnly();
+            }
+        };
+
+        function openInfo() {
+            const data = gameData[currentKey];
+            video.pause();
+            video.classList.add('blur');
+            infoTrigger.style.display = 'none';
+            document.getElementById('modal-body').innerHTML = `
+                <h3 style="color:var(--neon); letter-spacing:3px;">DATO DESBLOQUEADO</h3>
+                <p style="margin: 25px 0; line-height:1.6;">${data.infoText}</p>
+                <button class="btn-choice" style="width:100%" onclick="closeInfo()">CONTINUAR TRANSMISIÓN</button>
+            `;
+            overlay.classList.add('active');
+        }
+
+        function closeInfo() {
+            overlay.classList.remove('active');
+            video.classList.remove('blur');
+            video.play();
+        }
+
+        function showChoices(choices) {
+            video.classList.add('blur');
+            let html = `<h2 style="letter-spacing:5px;">DECISIÓN CRÍTICA</h2><div class="choices">`;
+            choices.forEach(c => {
+                html += `<button class="btn-choice" onclick="makeDecision(${c.points}, '${c.next}')">${c.text}</button>`;
+            });
+            html += `</div>`;
+            document.getElementById('modal-body').innerHTML = html;
+            overlay.classList.add('active');
+        }
+
+        function makeDecision(pts, next) {
+            impact += pts;
+            impactFill.style.width = Math.min(Math.max(impact, 0), 100) + '%';
+            loadNode(next);
+        }
+
+        function showFinal() {
+            video.classList.add('blur');
+            let finalType = impact >= 50 ? "AGENTE DE CAMBIO" : "ESPECTADOR";
+            let color = impact >= 50 ? "var(--neon)" : "#ff4444";
+            document.getElementById('modal-body').innerHTML = `
+                <h1 style="color:${color}; letter-spacing:5px;">${finalType}</h1>
+                <p style="opacity:0.6; margin-bottom:20px;">NIVEL DE IMPACTO: ${impact}%</p>
+                <button class="btn-choice" style="width:100%" onclick="loadNode('experiencia_final')">CONTEMPLAR EL MUNDO</button>
+            `;
+            overlay.classList.add('active');
+        }
+
+        function showRestartOnly() {
+            video.classList.add('blur');
+            document.getElementById('modal-body').innerHTML = `
+                <h2 style="letter-spacing:3px;">FIN DE LA EXPERIENCIA</h2>
+                <button class="btn-choice" style="width:100%" onclick="location.reload()">VOLVER A EMPEZAR</button>
+            `;
+            overlay.classList.add('active');
+        }
+
+        window.onclick = () => { 
+            if(video.paused && video.currentTime === 0) {
+                loadNode('intro');
+                music.play().catch(e => console.log("Audio bloqueado"));
+            } 
+        };
+    </script>
+</body>
+</html>
